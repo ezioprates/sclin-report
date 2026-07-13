@@ -54,7 +54,7 @@
   .kpi .k-val{font-size:27px;font-weight:800;margin-top:8px;letter-spacing:.3px}
   .kpi .k-sub{color:var(--muted2);font-size:12px;margin-top:5px}
   .ico{width:26px;height:26px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px}
-  .funnels{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .funnels{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px}
   .fcard{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;position:relative}
   .fcard .bar{position:absolute;left:0;top:18px;bottom:18px;width:4px;border-radius:4px}
   .fcard .f-top{display:flex;align-items:center;justify-content:space-between;margin-left:10px}
@@ -213,24 +213,49 @@ const SEED = [{
 let DATA = SEED.slice();
 let cplChart, mixChart;
 
+/* ---------- funis: paleta + emoji + detecção automática ---------- */
+const PALETTE = ['#2ea6ff','#8b7bff','#00d4c8','#f4a63b','#ff6b6b','#22c98a','#e879f9','#38bdf8','#fbbf24','#34d399'];
+function emojiFor(name){
+  const n=(name||'').toLowerCase();
+  if(n.includes('implant')) return '🦷';
+  if(n.includes('alinhad')||n.includes('ortodont')||n.includes('aparelho')) return '😬';
+  if(n.includes('faceta')||n.includes('lente')) return '✨';
+  if(n.includes('clarea')) return '💎';
+  if(n.includes('canal')||n.includes('endodont')) return '🩺';
+  return '🦷';
+}
+// Detecta funis: qualquer trio de colunas "Invest. X" + "Conversas X" + "Contatos X".
+// A ordem segue a ordem das colunas na planilha. "Google" é tratado à parte.
+function detectFunnels(r){
+  const out=[];
+  Object.keys(r).forEach(k=>{
+    const mt=k.match(/^Invest\. (.+)$/);
+    if(!mt) return;
+    const name=mt[1].trim();
+    if(name==='Google') return;
+    if(('Conversas '+name) in r && ('Contatos '+name) in r) out.push(name);
+  });
+  return out;
+}
+
 /* ---------- build a computed model from a raw row ---------- */
 function model(r){
   const n = k => Number(r[k])||0;
-  const fun = (inv,conv,cont)=>({inv,conv,cont,cpc:div(inv,conv),cpp:div(inv,cont)});
-  const impl = fun(n("Invest. Implantes"),n("Conversas Implantes"),n("Contatos Implantes"));
-  const alin = fun(n("Invest. Alinhadores"),n("Conversas Alinhadores"),n("Contatos Alinhadores"));
-  const face = fun(n("Invest. Facetas"),n("Conversas Facetas"),n("Contatos Facetas"));
-  const metaInv = impl.inv+alin.inv+face.inv;
-  const metaConv= impl.conv+alin.conv+face.conv;
-  const metaCont= impl.cont+alin.cont+face.cont;
+  const funnels = detectFunnels(r).map((name,i)=>{
+    const inv=n('Invest. '+name), conv=n('Conversas '+name), cont=n('Contatos '+name);
+    return {name, inv, conv, cont, cpc:div(inv,conv), cpp:div(inv,cont),
+            color:PALETTE[i%PALETTE.length], emoji:emojiFor(name)};
+  });
+  const metaInv = funnels.reduce((s,f)=>s+f.inv,0);
+  const metaConv= funnels.reduce((s,f)=>s+f.conv,0);
+  const metaCont= funnels.reduce((s,f)=>s+f.cont,0);
   const g = {
     inv:n("Invest. Google"),cliques:n("Cliques Google"),ligacoes:n("Ligações Google"),
     rota:n("Ver Rota Google"),conv:n("Conversões Google")
   };
   g.cpc = div(g.inv,g.cliques); g.cpa = div(g.inv,g.conv);
   return {
-    semana:r["Semana"],
-    impl,alin,face,
+    semana:r["Semana"], funnels,
     metaInv,metaConv,metaCont,
     cplConvMeta:div(metaInv,metaConv),cplContMeta:div(metaInv,metaCont),
     pctNovos:pct(metaCont,metaConv),
@@ -241,12 +266,6 @@ function model(r){
 }
 
 /* ---------- render ---------- */
-const FUNDEFS = [
-  {key:'impl',name:'🦷 Implantes',color:'var(--implante)'},
-  {key:'alin',name:'😬 Alinhadores',color:'var(--alinhador)'},
-  {key:'face',name:'✨ Facetas',color:'var(--faceta)'}
-];
-
 function badgeFor(rank){ // rank 0=best cpl,1=mid,2=worst
   if(rank===0) return '<span class="badge" style="background:rgba(34,201,138,.15);color:var(--good)">Melhor CPL</span>';
   if(rank===2) return '<span class="badge" style="background:rgba(255,107,107,.15);color:var(--bad)">CPL mais alto</span>';
@@ -266,24 +285,23 @@ function render(m){
   document.getElementById('k-cpl-sub').textContent = 'Meta Ads · '+money(m.cplContMeta)+' por contato novo';
 
   // Meta section spend
+  const F = m.funnels;
   document.getElementById('sp-meta').textContent = money(m.metaInv)+' · '+int(m.metaConv)+' conversas · '+int(m.metaCont)+' contatos';
 
-  // rank funnels by cpc (custo por conversa), ascending
-  const ordered = FUNDEFS.map(f=>({f,cpc:m[f.key].cpc}))
-    .filter(x=>x.cpc>0).sort((a,b)=>a.cpc-b.cpc);
+  // rank funis por custo/conversa, crescente
+  const ordered = F.filter(f=>f.cpc>0).slice().sort((a,b)=>a.cpc-b.cpc);
   const rankMap={};
-  ordered.forEach((x,i)=>{ rankMap[x.f.key] = (i===0?0:(i===ordered.length-1?2:1)); });
+  ordered.forEach((f,i)=>{ rankMap[f.name] = (i===0?0:(i===ordered.length-1?2:1)); });
 
   const fc = document.getElementById('funnels');
-  fc.innerHTML = FUNDEFS.map(f=>{
-    const d=m[f.key];
-    const rank = rankMap[f.key]===undefined?1:rankMap[f.key];
+  fc.innerHTML = F.map(f=>{
+    const rank = rankMap[f.name]===undefined?1:rankMap[f.name];
     return `<div class="fcard">
       <div class="bar" style="background:${f.color}"></div>
-      <div class="f-top"><div class="f-name">${f.name}</div>${badgeFor(rank)}</div>
-      <div class="invest">Investimento: <b>${money(d.inv)}</b></div>
-      <div class="frow"><span class="fl">Conversas</span><span><span class="fv">${int(d.conv)}</span> <span class="fcpl">· ${money(d.cpc)}</span></span></div>
-      <div class="frow"><span class="fl">Novos contatos</span><span><span class="fv">${int(d.cont)}</span> <span class="fcpl">· ${money(d.cpp)}</span></span></div>
+      <div class="f-top"><div class="f-name">${f.emoji} ${f.name}</div>${ordered.length>1?badgeFor(rank):''}</div>
+      <div class="invest">Investimento: <b>${money(f.inv)}</b></div>
+      <div class="frow"><span class="fl">Conversas</span><span><span class="fv">${int(f.conv)}</span> <span class="fcpl">· ${money(f.cpc)}</span></span></div>
+      <div class="frow"><span class="fl">Novos contatos</span><span><span class="fv">${int(f.cont)}</span> <span class="fcpl">· ${money(f.cpp)}</span></span></div>
     </div>`;
   }).join('');
 
@@ -296,11 +314,12 @@ function render(m){
   document.getElementById('g-conv-sub').textContent = int(m.g.ligacoes)+' ligação(ões) · '+int(m.g.rota)+' rota(s)';
   document.getElementById('g-cpa').textContent = money(m.g.cpa);
 
-  // Charts
-  const labels=['Implantes','Alinhadores','Facetas'];
-  const convData=[m.impl.cpc,m.alin.cpc,m.face.cpc];
-  const contData=[m.impl.cpp,m.alin.cpp,m.face.cpp];
-  const mixData=[m.impl.conv,m.alin.conv,m.face.conv];
+  // Charts (dinâmicos por funil)
+  const labels=F.map(f=>f.name);
+  const convData=F.map(f=>f.cpc);
+  const contData=F.map(f=>f.cpp);
+  const mixData=F.map(f=>f.conv);
+  const mixColors=F.map(f=>f.color);
   if(!cplChart){
     cplChart=new Chart(document.getElementById('cplChart'),{type:'bar',
       data:{labels,datasets:[
@@ -310,28 +329,28 @@ function render(m){
         plugins:{legend:{position:'top',labels:{boxWidth:12,usePointStyle:true}},
           tooltip:{callbacks:{label:c=>c.dataset.label+': '+money(c.raw)}}},
         scales:{y:{beginAtZero:true,grid:{color:'#26365f'},ticks:{callback:v=>'R$ '+v}},x:{grid:{display:false}}}}});
-  }else{cplChart.data.datasets[0].data=convData;cplChart.data.datasets[1].data=contData;cplChart.update();}
+  }else{cplChart.data.labels=labels;cplChart.data.datasets[0].data=convData;cplChart.data.datasets[1].data=contData;cplChart.update();}
 
   if(!mixChart){
     mixChart=new Chart(document.getElementById('mixChart'),{type:'doughnut',
-      data:{labels,datasets:[{data:mixData,backgroundColor:['#2ea6ff','#8b7bff','#00d4c8'],borderColor:'#172544',borderWidth:3}]},
+      data:{labels,datasets:[{data:mixData,backgroundColor:mixColors,borderColor:'#172544',borderWidth:3}]},
       options:{responsive:true,maintainAspectRatio:false,cutout:'62%',
         plugins:{legend:{position:'bottom',labels:{boxWidth:12,usePointStyle:true,padding:14}},
           tooltip:{callbacks:{label:c=>c.label+': '+c.raw+' conversas'}}}}});
-  }else{mixChart.data.datasets[0].data=mixData;mixChart.update();}
+  }else{mixChart.data.labels=labels;mixChart.data.datasets[0].data=mixData;mixChart.data.datasets[0].backgroundColor=mixColors;mixChart.update();}
 
   // Insight dinâmico
-  const bestVol = FUNDEFS.map(f=>({f,v:m[f.key].conv})).sort((a,b)=>b.v-a.v)[0];
+  const bestVol = F.slice().sort((a,b)=>b.conv-a.conv)[0];
   const bestCpl = ordered.length?ordered[0]:null;
   const worstCpl= ordered.length?ordered[ordered.length-1]:null;
   let txt = '';
-  if(bestVol.v>0){
-    txt += `<b>${bestVol.f.name.replace(/^[^ ]+ /,'')}</b> puxou o volume: trouxe <b>${int(bestVol.v)} das ${int(m.metaConv)} conversas</b> do Meta`;
+  if(bestVol && bestVol.conv>0){
+    txt += `<b>${bestVol.name}</b> puxou o volume: trouxe <b>${int(bestVol.conv)} das ${int(m.metaConv)} conversas</b> do Meta`;
     if(bestCpl) txt += `, com o menor custo por conversa (${money(bestCpl.cpc)})`;
     txt += '. ';
   }
-  if(worstCpl && bestCpl && worstCpl.f.key!==bestCpl.f.key){
-    txt += `Já <b>${worstCpl.f.name.replace(/^[^ ]+ /,'')}</b> ficou em ${money(worstCpl.cpc)} por conversa — aceitável se o ticket for mais alto e o lead fechar procedimento. `;
+  if(worstCpl && bestCpl && worstCpl.name!==bestCpl.name){
+    txt += `Já <b>${worstCpl.name}</b> ficou em ${money(worstCpl.cpc)} por conversa — aceitável se o ticket for mais alto e o lead fechar procedimento. `;
   }
   txt += `Investimento total da semana: <b>${money(m.investTotal)}</b> (Meta ${money(m.metaInv)} + Google ${money(m.g.inv)}), gerando <b>${int(m.totalConv)}</b> conversas/conversões. Para decidir remanejamento de verba com segurança, o dado que falta é <b>taxa de comparecimento e fechamento por funil</b>.`;
   document.getElementById('insight-txt').innerHTML = txt;
@@ -388,19 +407,17 @@ function ingestGrid(grid){
   }
   if(h<0) return false;
   const headers=grid[h].map(c=>String(c).trim());
-  const idx={}; headers.forEach((k,i)=>{ if(k) idx[k]=i; });
-  const NUMCOLS=["Invest. Implantes","Conversas Implantes","Contatos Implantes",
-    "Invest. Alinhadores","Conversas Alinhadores","Contatos Alinhadores",
-    "Invest. Facetas","Conversas Facetas","Contatos Facetas",
-    "Invest. Google","Cliques Google","Ligações Google","Ver Rota Google","Conversões Google"];
+  // lê TODAS as colunas (permite funis dinâmicos)
   const rows=[];
   for(let i=h+1;i<grid.length;i++){
     const g=grid[i];
-    const semana=(idx["Semana"]!=null?g[idx["Semana"]]:'')||'';
-    const rec={Semana:String(semana).trim()};
-    let invSum=0;
-    NUMCOLS.forEach(k=>{ const v=idx[k]!=null?num(g[idx[k]]):0; rec[k]=v; if(k.startsWith('Invest')) invSum+=v; });
-    if(rec.Semana!=='' && invSum>0) rows.push(rec);
+    const rec={}; let invSum=0;
+    headers.forEach((k,ci)=>{
+      if(!k) return;
+      if(k==='Semana') rec[k]=String(g[ci]||'').trim();
+      else { const v=num(g[ci]); rec[k]=v; if(k.indexOf('Invest.')===0) invSum+=v; }
+    });
+    if((rec['Semana']||'')!=='' && invSum>0) rows.push(rec);
   }
   if(!rows.length) return false;
   DATA=rows; populateWeeks(); return true;
