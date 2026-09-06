@@ -62,6 +62,7 @@
   .frow .fl{color:var(--muted);font-size:13px}
   .frow .fv{font-weight:700;font-size:14px}
   .frow .fcpl{font-size:12px;color:var(--muted2)}
+  .mdelta{font-size:11px;font-weight:700;margin-left:5px}
   .charts{display:grid;grid-template-columns:1.4fr 1fr;gap:14px}
   .chartbox{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px}
   .chartbox h3{font-size:14px;margin-bottom:4px}
@@ -320,6 +321,19 @@ function deltaHTML(cur,prev,sentiment,suffix){
   }
   return `<span class="${cls}">${arrow} ${Math.abs(ch).toFixed(0)}% ${suffix}</span>`;
 }
+// versão compacta, sem sufixo, para usar dentro dos cards de funil
+function miniDelta(cur,prev,sentiment,tip){
+  if(prev==null||!isFinite(prev)||prev===0) return `<span class="mdelta flat" title="${tip||''}">–</span>`;
+  const ch=(cur-prev)/prev*100;
+  const arrow= ch>0.5?'▲':(ch<-0.5?'▼':'■');
+  let cls='flat';
+  if(Math.abs(ch)>0.5){
+    const up=ch>0;
+    if(sentiment==='more') cls=up?'pos':'neg';
+    else if(sentiment==='less') cls=up?'neg':'pos';
+  }
+  return `<span class="mdelta ${cls}" title="${tip||''}">${arrow}${Math.abs(ch).toFixed(0)}%</span>`;
+}
 
 /* ---------- render ---------- */
 function badgeFor(rank){
@@ -355,14 +369,22 @@ function render(m,prev){
   document.getElementById('sp-meta').textContent = money(m.metaInv)+' · '+int(m.metaConv)+' conversas · '+int(m.metaCont)+' contatos';
   const ordered=F.filter(f=>f.cpc>0).slice().sort((a,b)=>a.cpc-b.cpc);
   const rankMap={}; ordered.forEach((f,i)=>{ rankMap[f.name]=(i===0?0:(i===ordered.length-1?2:1)); });
+  const prevFMap={}; if(prev) prev.funnels.forEach(pf=>prevFMap[pf.name]=pf);
+  const tip='vs '+(MODE==='mensal'?'mês':'semana')+' anterior';
   document.getElementById('funnels').innerHTML = F.map(f=>{
     const rank=rankMap[f.name]===undefined?1:rankMap[f.name];
+    const pf=prevFMap[f.name];
+    const dInv = miniDelta(f.inv, pf&&pf.inv, 'neutral', tip);
+    const dConv= miniDelta(f.conv,pf&&pf.conv,'more', tip);
+    const dCpc = miniDelta(f.cpc, pf&&pf.cpc, 'less', tip);
+    const dCont= miniDelta(f.cont,pf&&pf.cont,'more', tip);
+    const dCpp = miniDelta(f.cpp, pf&&pf.cpp, 'less', tip);
     return `<div class="fcard">
       <div class="bar" style="background:${f.color}"></div>
       <div class="f-top"><div class="f-name">${f.emoji} ${f.name}</div>${ordered.length>1?badgeFor(rank):''}</div>
-      <div class="invest">Investimento: <b>${money(f.inv)}</b></div>
-      <div class="frow"><span class="fl">Conversas</span><span><span class="fv">${int(f.conv)}</span> <span class="fcpl">· ${money(f.cpc)}</span></span></div>
-      <div class="frow"><span class="fl">Novos contatos</span><span><span class="fv">${int(f.cont)}</span> <span class="fcpl">· ${money(f.cpp)}</span></span></div>
+      <div class="invest">Investimento: <b>${money(f.inv)}</b> ${dInv}</div>
+      <div class="frow"><span class="fl">Conversas</span><span><span class="fv">${int(f.conv)}</span> ${dConv} <span class="fcpl">· ${money(f.cpc)} ${dCpc}</span></span></div>
+      <div class="frow"><span class="fl">Novos contatos</span><span><span class="fv">${int(f.cont)}</span> ${dCont} <span class="fcpl">· ${money(f.cpp)} ${dCpp}</span></span></div>
     </div>`;
   }).join('');
 
