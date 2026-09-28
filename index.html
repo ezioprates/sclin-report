@@ -436,23 +436,25 @@ function renderEvolution(selIdx){
   const labels=P.map(p=>p['Semana']);
   const contatos=P.map(p=>model(p).metaCont);
   const cpl=P.map(p=>model(p).cplCont);
+  const invest=P.map(p=>model(p).metaInv);
   const barColors=P.map((p,i)=> i===selIdx?'#00d4c8':'rgba(0,212,200,0.35)');
   document.getElementById('evo-title').textContent = MODE==='mensal'?'Evolução mensal':'Evolução semanal';
-  document.getElementById('evo-sub').textContent = 'Novos contatos (barras) e CPL por novo contato (linha)';
+  document.getElementById('evo-sub').textContent = 'Novos contatos (barras), CPL por novo contato e investimento total (linhas)';
   const ds=[
     {type:'bar',label:'Novos contatos',data:contatos,backgroundColor:barColors,yAxisID:'y',borderRadius:6,order:3},
-    {type:'line',label:'CPL (novo contato)',data:cpl,borderColor:'#ffb020',backgroundColor:'#ffb020',yAxisID:'y1',tension:.3,pointRadius:4,order:1}
+    {type:'line',label:'CPL (novo contato)',data:cpl,borderColor:'#ffb020',backgroundColor:'#ffb020',yAxisID:'y1',tension:.3,pointRadius:4,order:1},
+    {type:'line',label:'Investimento total',data:invest,borderColor:'#8b7bff',backgroundColor:'#8b7bff',borderDash:[6,4],yAxisID:'y2',tension:.3,pointRadius:3,order:0}
   ];
-  if(TARGET>0) ds.push({type:'line',label:'Meta CPL',data:labels.map(()=>TARGET),borderColor:'#ff6b6b',borderDash:[6,4],pointRadius:0,yAxisID:'y1',order:0});
   if(evoChart) evoChart.destroy();
   evoChart=new Chart(document.getElementById('evoChart'),{type:'bar',
     data:{labels,datasets:ds},
     options:{responsive:true,maintainAspectRatio:false,
       plugins:{legend:{position:'top',labels:{boxWidth:12,usePointStyle:true}},
-        tooltip:{callbacks:{label:c=> c.dataset.yAxisID==='y1'? c.dataset.label+': '+money(c.raw) : c.dataset.label+': '+int(c.raw)}}},
+        tooltip:{callbacks:{label:c=> c.dataset.yAxisID!=='y'? c.dataset.label+': '+money(c.raw) : c.dataset.label+': '+int(c.raw)}}},
       scales:{
         y:{position:'left',beginAtZero:true,grid:{color:'#26365f'},title:{display:true,text:'Novos contatos',color:'#93a4c8'}},
         y1:{position:'right',beginAtZero:true,grid:{display:false},ticks:{callback:v=>'R$ '+v},title:{display:true,text:'CPL (R$)',color:'#93a4c8'}},
+        y2:{position:'right',beginAtZero:true,grid:{display:false},ticks:{color:'#8b7bff',callback:v=>'R$ '+(v>=1000?(v/1000).toLocaleString('pt-BR',{maximumFractionDigits:1})+'k':v)},title:{display:true,text:'Investimento (R$)',color:'#8b7bff'}},
         x:{grid:{display:false}}
       }}});
 }
